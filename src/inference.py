@@ -1,9 +1,8 @@
 import os
 import pandas as pd
 import joblib
-from io import BytesIO
 from pydantic import ValidationError
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Tuple
 
 # Importaciones específicas de LangChain (actualizadas para el error de HFS)
 from langchain_core.prompts import PromptTemplate
@@ -26,7 +25,7 @@ EMBEDDING_MODEL = "text-embedding-ada-002"
 LLM_MODEL = "gpt-3.5-turbo"
 
 # --- RAG SYSTEM (In-Memory) ---
-def load_rag_system(rag_data_path: str = RAG_DATA_PATH):
+def load_rag_system(rag_data_path: str = RAG_DATA_PATH) -> Tuple[Any, Any]:
     """
     Carga y prepara el sistema RAG (Retrieval Augmented Generation) 
     en memoria usando LangChain para generar recomendaciones.
@@ -72,7 +71,7 @@ def load_rag_system(rag_data_path: str = RAG_DATA_PATH):
         return None, None
 
 # --- ML MODEL ---
-def load_ml_model(model_path: str = MODEL_PATH):
+def load_ml_model(model_path: str = MODEL_PATH) -> Any:
     """Carga el modelo de Machine Learning desde la ruta especificada."""
     try:
         # La ruta es relativa a la raíz del proyecto (NexusByte/)
@@ -105,7 +104,7 @@ def get_risk_score(ml_model: Any, profile_data: Dict[str, Any], feature_cols: li
         print(f"Error al calcular el score de riesgo: {e}")
         return -1.0 # Indica error
 
-# --- DATOS Y PARSER ---
+# --- DATOS Y PARSER (Se mantiene, aunque no se usa en app/app.py) ---
 def parse_profile_to_json(llm: Any, profile_text: str, json_schema: str) -> Optional[Dict[str, Any]]:
     """
     Usa el LLM para parsear texto de perfil a un objeto JSON que cumple con el esquema.
@@ -132,23 +131,29 @@ def parse_profile_to_json(llm: Any, profile_text: str, json_schema: str) -> Opti
         print(f"Error en el parsing LLM o JSON: {e}")
         return None
 
-# --- GENERACIÓN RAG ---
-def generate_rag_response(llm: Any, retriever: Any, risk_drivers: str) -> str:
+# --- GENERACIÓN RAG (CORRECCIÓN CLAVE) ---
+def generate_rag_response(llm: Any, retriever: Any, user_query: str) -> str:
     """
     Genera el plan de acción usando RAG.
+    
+    Argumentos:
+        llm: El LLM cargado (ChatOpenAI).
+        retriever: El retriever de la vector store (Chroma).
+        user_query: La consulta completa que viene de app/app.py, incluyendo el perfil y la pregunta.
     """
     if llm is None or retriever is None:
         return "El sistema RAG no está disponible. No se pueden generar recomendaciones."
 
     try:
         # 1. Búsqueda (Retrieval)
-        # Usamos el LLM para identificar qué información es relevante
-        relevant_docs = retriever.get_relevant_documents(risk_drivers)
+        # Usamos la consulta del usuario para buscar documentos relevantes.
+        relevant_docs = retriever.get_relevant_documents(user_query)
         rag_context = "\n---\n".join([doc.page_content for doc in relevant_docs])
 
         # 2. Generación (Augmentation)
+        # Formateamos el prompt con el contexto encontrado y la consulta del usuario.
         prompt = PromptTemplate.from_template(RAG_PROMPT_TEMPLATE).format(
-            risk_drivers=risk_drivers,
+            risk_drivers=user_query, # Aunque el nombre del template es risk_drivers, le pasamos la query completa
             rag_context=rag_context
         )
 

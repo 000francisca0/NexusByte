@@ -7,6 +7,14 @@ import sys
 from io import BytesIO
 from typing import Optional, Tuple, List, Dict, Any
 
+# =========================================================================
+# === CRÍTICO: FORZAR LECTURA DE LA CLAVE DE ENTORNO (HUGGING FACE) ===
+# Establece la variable de entorno OPENAI_API_KEY al inicio para LangChain
+# y el resto de librerías puedan leerla desde el sistema operativo.
+os.environ["OPENAI_API_KEY"] = os.environ.get("OPENAI_API_KEY", "")
+# =========================================================================
+
+
 # Importaciones de reportlab (para generar el PDF)
 from reportlab.lib.pagesizes import A4
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
@@ -15,16 +23,13 @@ from reportlab.lib.units import inch
 from reportlab.lib.colors import HexColor, black
 
 # --- CONFIGURACIÓN CRÍTICA PARA IMPORTAR src/inference.py ---
-# Ajusta la ruta de búsqueda de Python para que pueda encontrar el módulo 'src'
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 if project_root not in sys.path:
     sys.path.append(project_root)
 
 # --- Importaciones de Librerías y Lógica ---
 try:
-    # Importamos las funciones de src/inference.py
     from src.inference import load_ml_model, load_rag_system, get_risk_score, generate_rag_response
-    # Importamos el prompt RAG para usarlo en la generación
     from src.prompts import RAG_PROMPT_TEMPLATE 
 
 except ImportError as e:
@@ -34,11 +39,9 @@ except ImportError as e:
 
 # --- CONSTANTES Y CONFIGURACIÓN ---
 
-RISK_THRESHOLD_HIGH = 0.65 # Umbral de derivación a profesional
+RISK_THRESHOLD_HIGH = 0.65 
 MODEL_PATH = "models/hypertension_model.joblib"
-
-# --- CRÍTICO: COLUMNAS ESPERADAS POR EL MODELO ML ---
-# Esta lista debe coincidir EXACTAMENTE con las features esperadas por hypertension_model.joblib
+# CRÍTICO: COLUMNAS ESPERADAS POR EL MODELO ML
 FEATURE_COLS = [
     'Age', 'Gender', 'Weight_kg', 'Height_m', 'Sleep_Hours', 
     'Cigarettes_Day', 'Days_MVPA_Week', 'Fruit_Veg_Portions', 'Waist_cm'
@@ -51,7 +54,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Estilos CSS (Sin cambios, se mantiene)
+# Estilos CSS (Se mantiene)
 st.markdown("""
 <style>
     .header-text {
@@ -111,31 +114,24 @@ def create_pdf_report(user_data: Dict[str, Any], risk_score: float, drivers: Lis
     styles = getSampleStyleSheet()
     Story = []
 
-    # Título y estilos
     styles.add(ParagraphStyle(name='TitleStyle', fontSize=18, spaceAfter=20, alignment=1, textColor=HexColor('#007BFF')))
     styles.add(ParagraphStyle(name='SubTitleStyle', fontSize=14, spaceAfter=15, textColor=HexColor('#4CAF50')))
     styles.add(ParagraphStyle(name='DisclaimerStyle', fontSize=10, spaceBefore=30, textColor=black))
     styles.add(ParagraphStyle(name='NormalStyle', fontSize=12, leading=16))
 
-    # Título principal
     Story.append(Paragraph("Reporte de Bienestar Preventivo - NexusByte", styles['TitleStyle']))
 
-    # Sección de Perfil y Riesgo
     Story.append(Paragraph("1. Perfil y Estimación de Riesgo", styles['SubTitleStyle']))
     Story.append(Paragraph(f"**Fecha del Reporte:** {datetime.date.today().strftime('%d/%m/%Y')}", styles['NormalStyle']))
     Story.append(Paragraph(f"**Score de Riesgo (0-1):** <font color='#007BFF'>{risk_score:.2f}</font>", styles['NormalStyle']))
     Story.append(Paragraph(f"**Factores Clave (Drivers):** {', '.join(drivers)}", styles['NormalStyle']))
     Story.append(Spacer(1, 0.2*inch))
 
-    # Sección de Plan de Acción
     Story.append(Paragraph("2. Plan de Acción Personalizado (Coach IA)", styles['SubTitleStyle']))
-    
-    # Reemplazar saltos de línea y formatear el plan
     formatted_plan = plan_content.replace('\n', '<br/>').replace('*', '') 
     Story.append(Paragraph(formatted_plan, styles['NormalStyle']))
     Story.append(Spacer(1, 0.5*inch))
 
-    # Disclaimer final
     disclaimer = "⚠️ **DISCLAIMER:** Este reporte es generado por un sistema de Inteligencia Artificial Preventiva y NO constituye un diagnóstico médico. Siempre debe consultar a un profesional de la salud (médico, nutricionista o kinesiólogo) para cualquier decisión o plan de tratamiento."
     Story.append(Paragraph(disclaimer, styles['DisclaimerStyle']))
 
@@ -156,9 +152,9 @@ def get_mock_drivers(user_data: Dict[str, Any]) -> List[str]:
         drivers.append("Baja Actividad Física")
     if user_data.get('fruit_veg_portions_day', 5.0) < 5.0:
         drivers.append("Ingesta Baja de Frutas/Verduras")
-    if user_data.get('waist_cm', 90.0) > 102.0 and user_data['sex_code'] == 1: # Hombre > 102 cm
+    if user_data.get('waist_cm', 90.0) > 102.0 and user_data['sex_code'] == 1: 
         drivers.append("Circunferencia de Cintura Elevada")
-    elif user_data.get('waist_cm', 90.0) > 88.0 and user_data['sex_code'] == 0: # Mujer > 88 cm
+    elif user_data.get('waist_cm', 90.0) > 88.0 and user_data['sex_code'] == 0: 
         drivers.append("Circunferencia de Cintura Elevada")
 
     return drivers if drivers else ["Perfil General Saludable"]
@@ -177,10 +173,13 @@ def main():
     # 2. Sidebar para Configuración/Estado
     st.sidebar.markdown("## ⚙️ Estado del Sistema Híbrido")
     st.sidebar.markdown(f"**Estado del Modelo ML:** {'✅ Listo' if ml_model is not None else '❌ No Cargado'}")
-    st.sidebar.markdown(f"**Estado del Sistema RAG:** {'✅ Listo' if retriever is not None and llm is not None else '❌ No Cargado (Verifica OPENAI_API_KEY)'}")
-    
-    if ml_model is None or retriever is None or llm is None:
-        st.error("No se pudieron cargar todos los componentes. Revisa los logs en la barra lateral de Hugging Face.")
+    # CRÍTICO: Si falló, mostramos el mensaje de que la clave NO fue inyectada
+    if retriever is None or llm is None:
+        st.sidebar.markdown(f"**Estado del Sistema RAG:** ❌ No Cargado (Clave no inyectada en el entorno)")
+        st.error("No se pudieron cargar todos los componentes. Revisa tu clave en las Configuraciones (Secrets) de Hugging Face.")
+    else:
+        st.sidebar.markdown(f"**Estado del Sistema RAG:** ✅ Listo")
+        
 
     # 3. Formulario de Entrada y Score ML
     with st.container():
@@ -192,7 +191,7 @@ def main():
         with col1:
             user_data['age'] = st.slider("Edad (años)", min_value=18, max_value=85, value=45)
             user_data['sex'] = st.selectbox("Sexo Biológico", options=['Masculino', 'Femenino'], index=0)
-            user_data['sex_code'] = 1 if user_data['sex'] == 'Masculino' else 0 # 1=M, 0=F para el modelo ML
+            user_data['sex_code'] = 1 if user_data['sex'] == 'Masculino' else 0 
         
         with col2:
             user_data['height_cm'] = st.number_input("Altura (cm)", min_value=120, max_value=220, value=175)
@@ -206,12 +205,11 @@ def main():
             user_data['fruit_veg_portions_day'] = st.slider("Porciones Frutas/Verduras/Día", min_value=0.0, max_value=12.0, value=5.0, step=0.5)
 
         
-        # Generar diccionario de features para el modelo ML (DEBE COINCIDIR CON FEATURE_COLS)
         ml_features = {
             'Age': user_data['age'], 
             'Gender': user_data['sex_code'], 
             'Weight_kg': user_data['weight_kg'],
-            'Height_m': user_data['height_cm'] / 100, # Convertir a metros
+            'Height_m': user_data['height_cm'] / 100, 
             'Sleep_Hours': user_data['sleep_hours'],
             'Cigarettes_Day': user_data['smokes_cig_day'],
             'Days_MVPA_Week': user_data['days_mvpa_week'],
@@ -221,12 +219,9 @@ def main():
         
         if st.button("📊 Estimar Riesgo Cardiometabólico", type="primary"):
             if ml_model is not None:
-                # --- CORRECCIÓN CRÍTICA DEL TYPEERROR ---
-                # Pasamos el tercer argumento 'feature_cols'
                 risk_score_value = get_risk_score(ml_model, ml_features, FEATURE_COLS) 
 
-                if risk_score_value >= 0: # El ML devuelve -1.0 si falla
-                    # Usar la función auxiliar para determinar los drivers
+                if risk_score_value >= 0:
                     drivers = get_mock_drivers(user_data) 
                     st.session_state['risk_score'] = risk_score_value
                     st.session_state['drivers'] = drivers
@@ -251,7 +246,6 @@ def main():
         
         with col_score:
             
-            # Mensajes de riesgo y derivación
             if risk_score > RISK_THRESHOLD_HIGH:
                 message = "⚠️ **RIESGO ALTO:** Probabilidad elevada. **CONSULTAR a un profesional.**"
             elif risk_score > 0.4:
@@ -267,7 +261,6 @@ def main():
             for driver in drivers:
                 st.markdown(f"- {driver}")
                 
-            # Botón de Generación de PDF
             plan_content = st.session_state.get('plan_content', "Aún no se ha generado un plan personalizado en el chat del Coach.")
             
             if plan_content != "Aún no se ha generado un plan personalizado en el chat del Coach.":
@@ -287,44 +280,39 @@ def main():
             st.markdown("<div class='chat-container'>", unsafe_allow_html=True)
             st.markdown("### 💬 Coach IA: Preguntas y Plan de Acción")
             
-            # --- Lógica del Chat ---
             if 'messages' not in st.session_state:
                 st.session_state.messages = []
                 initial_message = f"Hola! Soy tu Coach de Bienestar NexusByte. Acabas de obtener un riesgo de **{risk_score:.2f}**. Mi objetivo es ayudarte a crear un plan de 2 semanas basado en tus factores clave ({', '.join(drivers)}). ¿Qué pregunta tienes o quieres que **genere tu plan de inmediato**?"
                 st.session_state.messages.append({"role": "assistant", "content": initial_message})
 
             
-            # Mostrar mensajes anteriores
             for message in st.session_state.messages:
                 with st.chat_message(message["role"]):
                     st.markdown(message["content"])
 
-            # Input del usuario
             if prompt := st.chat_input("Pregúntale a tu Coach (ej: 'Quiero mi plan de 2 semanas')"):
                 
                 st.session_state.messages.append({"role": "user", "content": prompt})
                 with st.chat_message("user"):
                     st.markdown(prompt)
 
-                # Procesar respuesta del Coach
                 with st.chat_message("assistant"):
                     with st.spinner("Procesando consulta y buscando en la base de conocimiento..."):
                         
                         llm_query = f"Consulta del usuario: '{prompt}'. Datos del perfil: Edad={user_data['age']}, Sexo={user_data['sex']}, Peso={user_data['weight_kg']}kg, Riesgo={risk_score:.2f}. Factores clave del riesgo: {', '.join(drivers)}."
                         
                         if retriever is not None and llm is not None:
-                            # generate_rag_response requiere (llm, retriever, risk_drivers)
                             response = generate_rag_response(
                                 llm, 
                                 retriever, 
                                 llm_query 
                             )
                         else:
-                            response = "Lo siento, el sistema RAG (Coach) no se cargó correctamente. Revisa el log."
+                            # CRÍTICO: Si falla, informamos que no es por el ML sino por la clave
+                            response = "Lo siento, el Coach IA no está disponible. Por favor, verifica que la clave de OpenAI API esté configurada correctamente."
                             
                         st.markdown(response)
                         
-                        # Heuristic: Asume que si el usuario pide "plan" o "recomendación", la respuesta es el plan.
                         if "plan" in prompt.lower() or "recomendación" in prompt.lower():
                             st.session_state['plan_content'] = response
                             st.info("✅ Plan de acción guardado. Ya puedes descargar el PDF.")
@@ -335,4 +323,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-    #
