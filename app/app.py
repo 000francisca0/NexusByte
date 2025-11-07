@@ -22,10 +22,9 @@ if project_root not in sys.path:
 
 # --- Importaciones de Librerías y Lógica ---
 try:
-    # Asegúrate de que estas funciones existan en src/inference.py
-    # NOTA: Se eliminó la importación de SYSTEM_PROMPT_COACH que no existe en src/prompts.py
+    # Importamos las funciones de src/inference.py
     from src.inference import load_ml_model, load_rag_system, get_risk_score, generate_rag_response
-    # Se añade la importación de prompts para usar RAG_PROMPT_TEMPLATE si fuera necesario
+    # Importamos el prompt RAG para usarlo en la generación
     from src.prompts import RAG_PROMPT_TEMPLATE 
 
 except ImportError as e:
@@ -37,8 +36,14 @@ except ImportError as e:
 
 RISK_THRESHOLD_HIGH = 0.65 # Umbral de derivación a profesional
 MODEL_PATH = "models/hypertension_model.joblib"
-# IMPORTANTE: Eliminamos FAISS_INDEX_PATH ya que el RAG ahora es EN MEMORIA.
-# La función load_rag_system() en src/inference.py ahora usa el CSV directamente.
+
+# --- CRÍTICO: COLUMNAS ESPERADAS POR EL MODELO ML ---
+# Esta lista debe coincidir EXACTAMENTE con las features esperadas por hypertension_model.joblib
+FEATURE_COLS = [
+    'Age', 'Gender', 'Weight_kg', 'Height_m', 'Sleep_Hours', 
+    'Cigarettes_Day', 'Days_MVPA_Week', 'Fruit_Veg_Portions', 'Waist_cm'
+]
+
 
 st.set_page_config(
     page_title="NexusByte: Coach de Bienestar Preventivo IA Híbrida",
@@ -81,7 +86,6 @@ st.markdown("""
 def get_ml_model():
     """Carga el modelo de Machine Learning y lo cachea para eficiencia."""
     try:
-        # Pasa la ruta del modelo ML
         model = load_ml_model(MODEL_PATH) 
         return model
     except Exception as e:
@@ -92,14 +96,13 @@ def get_ml_model():
 def get_rag_system():
     """Carga el sistema RAG (retriever y LLM) y lo cachea."""
     try:
-        # Llama a load_rag_system sin ruta, ya que usa el CSV interno
         retriever, llm = load_rag_system()
         return retriever, llm
     except Exception as e:
         print(f"Error al cargar RAG System en app: {e}")
         return None, None
 
-# --- GENERACIÓN DE PDF ---
+# --- GENERACIÓN DE PDF (Se mantiene) ---
 
 def create_pdf_report(user_data: Dict[str, Any], risk_score: float, drivers: List[str], plan_content: str) -> bytes:
     """Genera el documento PDF del plan personalizado."""
@@ -108,7 +111,7 @@ def create_pdf_report(user_data: Dict[str, Any], risk_score: float, drivers: Lis
     styles = getSampleStyleSheet()
     Story = []
 
-    # Título y estilos (se mantiene)
+    # Título y estilos
     styles.add(ParagraphStyle(name='TitleStyle', fontSize=18, spaceAfter=20, alignment=1, textColor=HexColor('#007BFF')))
     styles.add(ParagraphStyle(name='SubTitleStyle', fontSize=14, spaceAfter=15, textColor=HexColor('#4CAF50')))
     styles.add(ParagraphStyle(name='DisclaimerStyle', fontSize=10, spaceBefore=30, textColor=black))
@@ -140,12 +143,10 @@ def create_pdf_report(user_data: Dict[str, Any], risk_score: float, drivers: Lis
     return buffer.getvalue()
 
 
-# --- FUNCIÓN PRINCIPAL DE LA APLICACIÓN ---
+# --- FUNCIONES AUXILIARES ---
 
-# Esta función simula la obtención de drivers. En un entorno real, tu modelo ML
-# o una función auxiliar debería determinar cuáles de las entradas son las más influyentes.
 def get_mock_drivers(user_data: Dict[str, Any]) -> List[str]:
-    """Retorna factores clave simulados basados en las entradas."""
+    """Retorna factores clave simulados basados en las entradas del usuario."""
     drivers = []
     if user_data.get('sleep_hours', 7.5) < 6.5:
         drivers.append("Sueño Insuficiente")
@@ -155,13 +156,15 @@ def get_mock_drivers(user_data: Dict[str, Any]) -> List[str]:
         drivers.append("Baja Actividad Física")
     if user_data.get('fruit_veg_portions_day', 5.0) < 5.0:
         drivers.append("Ingesta Baja de Frutas/Verduras")
-    if user_data.get('waist_cm', 90.0) > 102.0 and user_data['sex_code'] == 'M':
+    if user_data.get('waist_cm', 90.0) > 102.0 and user_data['sex_code'] == 1: # Hombre > 102 cm
         drivers.append("Circunferencia de Cintura Elevada")
-    elif user_data.get('waist_cm', 90.0) > 88.0 and user_data['sex_code'] == 'F':
+    elif user_data.get('waist_cm', 90.0) > 88.0 and user_data['sex_code'] == 0: # Mujer > 88 cm
         drivers.append("Circunferencia de Cintura Elevada")
 
     return drivers if drivers else ["Perfil General Saludable"]
 
+
+# --- FUNCIÓN PRINCIPAL DE LA APLICACIÓN ---
 
 def main():
     st.markdown("<h1 class='header-text'>Coach de Bienestar Preventivo IA Híbrida</h1>", unsafe_allow_html=True)
@@ -173,14 +176,11 @@ def main():
 
     # 2. Sidebar para Configuración/Estado
     st.sidebar.markdown("## ⚙️ Estado del Sistema Híbrido")
-    # Mostrar estado de carga
     st.sidebar.markdown(f"**Estado del Modelo ML:** {'✅ Listo' if ml_model is not None else '❌ No Cargado'}")
     st.sidebar.markdown(f"**Estado del Sistema RAG:** {'✅ Listo' if retriever is not None and llm is not None else '❌ No Cargado (Verifica OPENAI_API_KEY)'}")
     
     if ml_model is None or retriever is None or llm is None:
         st.error("No se pudieron cargar todos los componentes. Revisa los logs en la barra lateral de Hugging Face.")
-        # Evitamos st.stop() para que al menos se muestre el formulario.
-
 
     # 3. Formulario de Entrada y Score ML
     with st.container():
@@ -206,12 +206,10 @@ def main():
             user_data['fruit_veg_portions_day'] = st.slider("Porciones Frutas/Verduras/Día", min_value=0.0, max_value=12.0, value=5.0, step=0.5)
 
         
-        # Generar diccionario de features para el modelo ML (DEBE COINCIDIR CON ML)
+        # Generar diccionario de features para el modelo ML (DEBE COINCIDIR CON FEATURE_COLS)
         ml_features = {
             'Age': user_data['age'], 
             'Gender': user_data['sex_code'], 
-            # Faltan datos críticos como BP, Diet/Activity/Sleep Score de la versión de inference anterior
-            # Usaremos una versión simplificada de features para evitar un error de clave en el modelo ML.
             'Weight_kg': user_data['weight_kg'],
             'Height_m': user_data['height_cm'] / 100, # Convertir a metros
             'Sleep_Hours': user_data['sleep_hours'],
@@ -223,22 +221,13 @@ def main():
         
         if st.button("📊 Estimar Riesgo Cardiometabólico", type="primary"):
             if ml_model is not None:
-                # La función get_risk_score en inference.py solo retorna el score.
-                # Aquí debes pasarle el diccionario de features del modelo.
-                # (Asumiendo que get_risk_score en inference.py ha sido modificado para usar las features que proporcionaste)
-                
-                # Por el momento, la versión de src/inference.py que te di usa el esquema anterior, 
-                # así que pasamos solo los datos necesarios para una simulación que no falle.
-                # Para simplificar y no fallar por falta de features:
-                
-                # CÁLCULO DE RIESGO SIMPLIFICADO: Usaremos el get_risk_score de inference 
-                # con un set de datos MOCK para evitar el error de features faltantes.
-                
-                risk_score_value = get_risk_score(ml_model, ml_features) 
+                # --- CORRECCIÓN CRÍTICA DEL TYPEERROR ---
+                # Pasamos el tercer argumento 'feature_cols'
+                risk_score_value = get_risk_score(ml_model, ml_features, FEATURE_COLS) 
 
-                # Si el score es válido (no es -1.0 de error)
-                if risk_score_value > 0:
-                    drivers = get_mock_drivers(user_data) # Usar drivers mockeados
+                if risk_score_value >= 0: # El ML devuelve -1.0 si falla
+                    # Usar la función auxiliar para determinar los drivers
+                    drivers = get_mock_drivers(user_data) 
                     st.session_state['risk_score'] = risk_score_value
                     st.session_state['drivers'] = drivers
                     st.session_state['user_data'] = user_data
@@ -262,7 +251,7 @@ def main():
         
         with col_score:
             
-            # Mensajes de riesgo y derivación (se mantiene)
+            # Mensajes de riesgo y derivación
             if risk_score > RISK_THRESHOLD_HIGH:
                 message = "⚠️ **RIESGO ALTO:** Probabilidad elevada. **CONSULTAR a un profesional.**"
             elif risk_score > 0.4:
@@ -305,7 +294,7 @@ def main():
                 st.session_state.messages.append({"role": "assistant", "content": initial_message})
 
             
-            # Mostrar mensajes anteriores (se mantiene)
+            # Mostrar mensajes anteriores
             for message in st.session_state.messages:
                 with st.chat_message(message["role"]):
                     st.markdown(message["content"])
@@ -321,16 +310,14 @@ def main():
                 with st.chat_message("assistant"):
                     with st.spinner("Procesando consulta y buscando en la base de conocimiento..."):
                         
-                        # Creamos el prompt de consulta para el LLM
                         llm_query = f"Consulta del usuario: '{prompt}'. Datos del perfil: Edad={user_data['age']}, Sexo={user_data['sex']}, Peso={user_data['weight_kg']}kg, Riesgo={risk_score:.2f}. Factores clave del riesgo: {', '.join(drivers)}."
                         
                         if retriever is not None and llm is not None:
-                            # generate_rag_response retorna (respuesta, plan_generado_booleano)
-                            # Se usa RAG_PROMPT_TEMPLATE como SYSTEM_PROMPT_COACH para esta implementación.
+                            # generate_rag_response requiere (llm, retriever, risk_drivers)
                             response = generate_rag_response(
-                                llm, # Pasamos el LLM primero
-                                retriever, # Luego el Retriever
-                                llm_query # Pasamos la consulta del usuario
+                                llm, 
+                                retriever, 
+                                llm_query 
                             )
                         else:
                             response = "Lo siento, el sistema RAG (Coach) no se cargó correctamente. Revisa el log."
