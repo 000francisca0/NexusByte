@@ -10,3 +10,4 @@ langchain-core
 langchain-community
 # Aseguramos una versión de langchain que contenga el módulo 'text_splitter'
 langchain==0.2.7
+langchain-text-splitters

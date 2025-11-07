@@ -1,193 +1,160 @@
-import joblib
-import pandas as pd
-import numpy as np
 import os
+import pandas as pd
+import joblib
+from io import BytesIO
+from pydantic import ValidationError
+from typing import Dict, Any, Optional
 
-# Importaciones del Sistema RAG (LangChain/LLM)
-from langchain_community.vectorstores import FAISS
-from langchain_community.embeddings import OpenAIEmbeddings
+# Importaciones específicas de LangChain (actualizadas para el error de HFS)
 from langchain_core.prompts import PromptTemplate
-from langchain_community.llms import OpenAI
-from langchain.text_splitter import CharacterTextSplitter  # ESTO ES LO QUE FALLA AHORA
-from langchain.schema.runnable import RunnablePassthrough
-from langchain.schema.output_parser import StrOutputParser
+from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+from langchain_community.document_loaders import PyPDFLoader
+from langchain_community.vectorstores import Chroma
+# CORRECCIÓN CLAVE: Importamos desde el paquete específico 'langchain_text_splitters'
+from langchain_text_splitters import CharacterTextSplitter 
 
-# --- 1. CONFIGURACIÓN ---
+# Importación local de prompts
+from src.prompts import RAG_PROMPT_TEMPLATE, JSON_PROMPT_TEMPLATE
 
-# Verifica que tu clave de OpenAI esté configurada
-if "OPENAI_API_KEY" not in os.environ:
-    print("ADVERTENCIA: La variable de entorno OPENAI_API_KEY no está configurada. El sistema RAG fallará.")
+# --- CONSTANTES ---
+# La clave se cargará automáticamente desde los Secrets de Hugging Face
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY") 
+MODEL_PATH = "models/hypertension_model.joblib"
+# Usamos un archivo de datos .csv sencillo para evitar la complejidad de PDF en este entorno
+RAG_DATA_PATH = "data/Dietary_TRAIN.csv" 
+EMBEDDING_MODEL = "text-embedding-ada-002"
+LLM_MODEL = "gpt-3.5-turbo"
 
-
-# --- 2. MODELO ML: CARGA Y PREDICCIÓN ---
-
-def load_ml_model(model_path: str):
-    """Carga el modelo ML (Joblib) desde la ruta especificada."""
+# --- RAG SYSTEM (In-Memory) ---
+def load_rag_system(rag_data_path: str = RAG_DATA_PATH):
+    """
+    Carga y prepara el sistema RAG (Retrieval Augmented Generation) 
+    en memoria usando LangChain para generar recomendaciones.
+    """
+    if not OPENAI_API_KEY:
+        print("ADVERTENCIA: OPENAI_API_KEY no está configurada. El sistema RAG no funcionará.")
+        return None, None
+    
     try:
-        # Resuelve la ruta relativa (sube de src/ a la raíz y busca en models/)
-        base_dir = os.path.dirname(os.path.dirname(__file__)) 
-        full_path = os.path.join(base_dir, model_path)
+        # Cargar datos simulados como texto para el RAG
+        df_rag = pd.read_csv(rag_data_path)
+        rag_text = df_rag.to_string(index=False)
+        documents = [rag_text] # Tratamos el CSV como un solo documento grande de texto
+
+        # 1. Splitter (ahora importado desde langchain_text_splitters)
+        text_splitter = CharacterTextSplitter(
+            separator="\n\n",
+            chunk_size=1000,
+            chunk_overlap=200,
+            length_function=len,
+        )
         
-        # Carga el modelo
-        model = joblib.load(full_path)
-        print(f"✅ Modelo ML cargado desde: {full_path}")
-        return model
+        # 2. División de documentos (simulando los chunks)
+        texts = text_splitter.create_documents([rag_text])
+
+        # 3. Embeddings
+        embeddings = OpenAIEmbeddings(openai_api_key=OPENAI_API_KEY, model=EMBEDDING_MODEL)
+
+        # 4. Vector Store
+        # Usamos un almacenamiento temporal en memoria (no persistente)
+        vectorstore = Chroma.from_documents(texts, embeddings)
+        
+        # 5. LLM
+        llm = ChatOpenAI(openai_api_key=OPENAI_API_KEY, model=LLM_MODEL, temperature=0.7)
+
+        # 6. Retorno de Retriever y LLM
+        retriever = vectorstore.as_retriever()
+        
+        return retriever, llm
+
     except Exception as e:
-        print(f"❌ Error al cargar el modelo ML en {full_path}: {e}")
+        print(f"Error al cargar el sistema RAG: {e}")
+        return None, None
+
+# --- ML MODEL ---
+def load_ml_model(model_path: str = MODEL_PATH):
+    """Carga el modelo de Machine Learning desde la ruta especificada."""
+    try:
+        # La ruta es relativa a la raíz del proyecto (NexusByte/)
+        ml_model = joblib.load(model_path)
+        return ml_model
+    except Exception as e:
+        print(f"Error al cargar el modelo ML: {e}")
         return None
 
-def get_risk_score(ml_model, user_data: dict) -> tuple:
-    """Calcula el score de riesgo y devuelve los principales factores que contribuyen."""
+def get_risk_score(ml_model: Any, profile_data: Dict[str, Any], feature_cols: list) -> float:
+    """Calcula el score de riesgo de hipertensión."""
     if ml_model is None:
-        return 0.0, ["Error: Modelo ML no disponible."]
-
-    # 2.1 Preprocesamiento de datos para el modelo
+        return -1.0 # Indica error o modelo no cargado
     
-    # Calcular IMC (BMI)
-    height_m = user_data['height_cm'] / 100.0
-    bmi = user_data['weight_kg'] / (height_m ** 2)
-
-    # 1 para Femenino, 0 para Masculino
-    sex_binary = 1 if user_data['sex_code'] == 'F' else 0
-
-    # DataFrame con las 9 columnas que el modelo espera
-    input_data = pd.DataFrame({
-        'Age_Years_mean': [user_data['age']],
-        'Sex_Female': [sex_binary],  
-        'BMI_mean': [bmi],
-        'Waist_Circumference_cm_mean': [user_data['waist_cm']],
-        'Hours_Sleep_mean': [user_data['sleep_hours']],
-        'Cigarettes_per_day_mean': [user_data['smokes_cig_day']],
-        'Days_MVPA_per_week_mean': [user_data['days_mvpa_week']],
-        'Fruit_Vegetable_Portions_day_mean': [user_data['fruit_veg_portions_day']],
-        'Height_cm_mean': [user_data['height_cm']] 
-    })
-    
-    # 2.2 Predicción
     try:
-        # La probabilidad de la clase 1 (riesgo)
-        risk_score = ml_model.predict_proba(input_data)[:, 1][0] 
-    except Exception as e:
-        print(f"Error durante la predicción del modelo: {e}")
-        return 0.0, ["Error en la predicción."]
-    
-    # 2.3 Extracción de Drivers (Factores Clave - Lógica heurística)
-    drivers = []
-    
-    if bmi > 30: drivers.append("IMC elevado (Obesidad)")
-    elif bmi > 25: drivers.append("Sobrepeso (IMC)")
-    
-    # Puntos de corte estándar OMS simplificados: M > 90cm, F > 80cm
-    if user_data['waist_cm'] > (90 if user_data['sex_code'] == 'M' else 80): 
-        drivers.append("Circunferencia de cintura alta (Riesgo Abdominal)")
+        # 1. Crear DataFrame con los datos del perfil
+        data_for_prediction = pd.DataFrame([profile_data], columns=feature_cols)
         
-    if user_data['smokes_cig_day'] > 0: drivers.append("Consumo de tabaco")
-    
-    if user_data['days_mvpa_week'] < 3: drivers.append("Baja actividad física vigorosa")
-    
-    if user_data['fruit_veg_portions_day'] < 5: drivers.append("Baja ingesta de frutas/verduras")
-    
-    if user_data['sleep_hours'] < 6.5 or user_data['sleep_hours'] > 8.5: drivers.append("Patrón de sueño inadecuado")
-    
-    if not drivers:
-        drivers = ["Edad", "Circunferencia de cintura", "IMC"]
+        # 2. Asegurarse de que las columnas están en orden (IMPORTANTE)
+        # Esto asume que 'feature_cols' es la lista correcta de características esperadas por el modelo
+        data_for_prediction = data_for_prediction[feature_cols]
 
-    unique_drivers = list(set(drivers))
-    return risk_score, unique_drivers[:4]
-
-
-# --- 3. SISTEMA RAG: CARGA Y CONSULTA (EN MEMORIA) ---
-
-# BASE DE CONOCIMIENTO (mini-KB) - Integrada en el código
-KB_TEXT = """
-Tópicos de Bienestar y Salud Preventiva (Mini-KB para RAG):
-
-1. Nutrición: Dieta mediterránea: rica en frutas, verduras, granos integrales, aceite de oliva y proteínas magras. Reducir la sal (menos de 5g/día), azúcares añadidos y grasas saturadas es clave. Mínimo de 5 porciones de frutas y verduras al día.
-2. Actividad Física: 150 minutos de actividad aeróbica moderada O 75 minutos vigorosa por semana, más 2 días de entrenamiento de fuerza. El sedentarismo prolongado aumenta el riesgo.
-3. Sueño y Descanso: Adultos deben apuntar a 7-9 horas de sueño de calidad. El sueño insuficiente eleva cortisol y afecta metabolismo e inflamación.
-4. Estrés y Manejo Emocional: Técnicas de mindfulness, meditación y manejo del tiempo. El estrés crónico contribuye a la hipertensión y riesgo cardiometabólico.
-5. Prevención Cardiovascular: Control de peso (IMC < 25), presión arterial (< 120/80 mmHg ideal), y colesterol. La grasa abdominal (cintura alta) es un indicador de riesgo superior al IMC en algunos casos.
-6. Tabaquismo: Dejar de fumar reduce el riesgo a la mitad en un año. Es el factor modificable más crítico para enfermedad cardiovascular.
-
-REGLAS CLAVE PARA EL COACH:
-- No diagnosticar enfermedades.
-- Siempre referir a un profesional de la salud (médico, nutricionista o kinesiólogo) para decisiones finales.
-- El plan de acción debe ser motivador, realista y tener una duración de 2 semanas.
-- El tono debe ser amable, alentador y empático (estilo "coach").
-"""
-
-def load_rag_system():
-    """Carga la Base de Conocimiento en memoria y configura la cadena RAG."""
-    try:
-        # 3.1 Inicializar Embeddings y LLM
-        embeddings = OpenAIEmbeddings()
-        llm = OpenAI(temperature=0.0) 
-
-        # 3.2 Creación del Vector Store EN MEMORIA (In-Memory)
-        # Esto reemplaza a FAISS.load_local() y evita los errores de archivos faltantes
-        texts = KB_TEXT.split('\n')
-        clean_texts = [t for t in texts if t.strip()] 
+        # 3. Predicción (usando predict_proba para obtener el riesgo de la clase positiva)
+        # Asume que la clase positiva (riesgo) está en el índice 1
+        risk_score = ml_model.predict_proba(data_for_prediction)[:, 1][0]
         
-        # Crea la base de datos FAISS en memoria y el retriever
-        vector_store = FAISS.from_texts(clean_texts, embeddings)
-        retriever = vector_store.as_retriever(search_kwargs={"k": 3})
-        
-        # 3.3 Definición del Prompt RAG
-        rag_prompt_template = PromptTemplate(
-            template="""Eres un Coach de Bienestar Preventivo en Chile. Tu tono es motivador y empático.
-
-            [REGLAS CLAVE: 1. No diagnosticar. 2. Siempre referir al profesional. 3. Usar el contexto proporcionado.]
-
-            Contexto de la Base de Conocimiento (mini-KB):
-            {context}
-
-            Instrucciones Específicas del Usuario:
-            {question}
-
-            1. Si el usuario pide un "plan", genera un Plan de Acción de 2 Semanas conciso y en formato de lista.
-            2. Si es una pregunta, responde con consejos relevantes basados en el contexto.
-            3. Tu respuesta debe ser concisa y útil, no repitas la pregunta.
-            """,
-            input_variables=["context", "question"]
-        )
-
-        # 3.4 Configuración de la cadena RAG completa
-        rag_chain = (
-            {"context": retriever, "question": RunnablePassthrough()}
-            | rag_prompt_template
-            | llm
-            | StrOutputParser()
-        )
-        
-        print(f"✅ Sistema RAG cargado y configurado en memoria.")
-        return rag_chain
+        return float(risk_score)
 
     except Exception as e:
-        print(f"❌ Error al cargar el sistema RAG: {e}")
-        print("Asegúrate de que la clave OPENAI_API_KEY esté disponible.")
+        print(f"Error al calcular el score de riesgo: {e}")
+        return -1.0 # Indica error
+
+# --- DATOS Y PARSER ---
+def parse_profile_to_json(llm: Any, profile_text: str, json_schema: str) -> Optional[Dict[str, Any]]:
+    """
+    Usa el LLM para parsear texto de perfil a un objeto JSON que cumple con el esquema.
+    """
+    if llm is None:
+        print("Error: LLM no disponible para parsing.")
         return None
 
-def generate_rag_response(rag_system, prompt: str) -> tuple:
-    """
-    Genera la respuesta del LLM utilizando el sistema RAG.
-    Devuelve (respuesta_texto, es_plan_generado_booleano).
-    """
-    if rag_system is None:
-        return "Lo siento, el Coach IA no está disponible.", False
-    
-    # 4.1 Generación de la Respuesta
     try:
-        response = rag_system.invoke(prompt)
+        # Crear el prompt específico para el parser
+        prompt = PromptTemplate.from_template(JSON_PROMPT_TEMPLATE).format(
+            profile_text=profile_text,
+            json_schema=json_schema
+        )
         
-        # 4.2 Detección de la Intención (¿Se generó un plan?)
-        plan_keywords = ["plan", "semanas", "acción", "rutina", "cronograma"]
-        is_plan_generated = any(keyword in prompt.lower() for keyword in plan_keywords)
+        # Llamada al LLM
+        response = llm.invoke(prompt).content
+        
+        # Intenta cargar la respuesta como JSON
+        import json
+        return json.loads(response)
 
-        # 4.3 Añadir el Disclaimer Final
-        disclaimer = "\n\n---\n*Recuerda: Soy un coach IA. Consulta siempre con un profesional de la salud.*"
-        
-        return response + disclaimer, is_plan_generated
-    
     except Exception as e:
-        print(f"Error al invocar la cadena RAG: {e}")
-        return "Hubo un error al comunicarme con el Coach IA. Por favor, revisa tu clave de API o la conexión a internet.", False
+        print(f"Error en el parsing LLM o JSON: {e}")
+        return None
+
+# --- GENERACIÓN RAG ---
+def generate_rag_response(llm: Any, retriever: Any, risk_drivers: str) -> str:
+    """
+    Genera el plan de acción usando RAG.
+    """
+    if llm is None or retriever is None:
+        return "El sistema RAG no está disponible. No se pueden generar recomendaciones."
+
+    try:
+        # 1. Búsqueda (Retrieval)
+        # Usamos el LLM para identificar qué información es relevante
+        relevant_docs = retriever.get_relevant_documents(risk_drivers)
+        rag_context = "\n---\n".join([doc.page_content for doc in relevant_docs])
+
+        # 2. Generación (Augmentation)
+        prompt = PromptTemplate.from_template(RAG_PROMPT_TEMPLATE).format(
+            risk_drivers=risk_drivers,
+            rag_context=rag_context
+        )
+
+        response = llm.invoke(prompt).content
+        return response
+
+    except Exception as e:
+        print(f"Error durante la generación RAG: {e}")
+        return "Error en la generación de la respuesta. Verifica la configuración de OpenAI."
