@@ -1,21 +1,4 @@
-¡Casi perfecto!
 
-Veo que pegaste el texto, pero se mezclaron dos cosas:
-
-Añadiste dos títulos extra al principio (# NexusByte y Creación de proyecto para Hackathon), lo cual es redundante porque el título principal ya está incluido.
-
-Parece que solo pegaste la primera mitad del archivo. Te faltaron las secciones más importantes que te pide la pauta: "Arquitectura", "Stack Tecnológico" y "Estructura del Proyecto".
-
-¡No te preocupes! Aquí tienes la versión final, limpia y completa.
-
-Tu Acción
-Abre tu archivo README.md.
-
-Borra absolutamente todo lo que tiene adentro.
-
-Copia y pega el texto exacto que está en el bloque de abajo. No le añadas ningún título extra.
-
-👇 COPIA Y PEGA ESTE TEXTO COMPLETO (vFinal) 👇
 Markdown
 
 # NexusByte: Coach de Bienestar Híbrido (ML + RAG)
@@ -26,9 +9,6 @@ Markdown
 ![AI](https://img.shields.io/badge/AI-RAG_&_Scikit--learn-orange.svg)
 
 Prototipo de una aplicación de salud híbrida que combina Machine Learning (ML) para análisis predictivo y Generación Aumentada por Recuperación (RAG) para coaching conversacional personalizado, cumpliendo con la pauta del 1° Hackathon de IA Aplicada Duoc UC 2025.
-
-![Interfaz de la App NexusByte](app/IA.png)
-*(Reemplaza 'app/IA.png' con una captura de pantalla de tu app final)*
 
 ---
 
