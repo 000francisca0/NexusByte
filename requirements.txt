@@ -1,21 +1,12 @@
-# Dependencias ML y Carga de Datos
+streamlit
 pandas
 numpy
-scikit-learn
-xgboost
-pyreadstat
-
-# Dependencias LLM y RAG (CORREGIDAS)
-langchain
-langchain-community
-langchain-openai
-faiss-cpu
-openai # Usamos langchain-openai, pero 'openai' base es buena práctica
-tiktoken # ¡Añadir! Necesario para el conteo de tokens con OpenAI/LangChain
-
-# Dependencias App Demo
-streamlit
-
-# Dependencias para Generación de PDF
 reportlab
-python-dotenv
+joblib
+openai
+pydantic
+tiktoken
+langchain-core
+langchain-community
+# Aseguramos una versión de langchain que contenga el módulo 'text_splitter'
+langchain==0.2.7
