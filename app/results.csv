@@ -1,0 +1,2 @@
+feat_imc,feat_whtr,feat_age,feat_sex,feat_is_smoker,feat_sleep_hours,feat_activity_days,risk_score,prediction,timestamp
+33.732501264968796,0.5194805194805194,52,1,0,1.0,3,0.7815549373626709,1,2025-11-07T06:08:23.741851
