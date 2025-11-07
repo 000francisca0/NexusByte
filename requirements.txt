@@ -10,16 +10,12 @@ langchain
 langchain-community
 langchain-openai
 faiss-cpu
-openai
-fastapi
-
-# Dependencias API y Deploy
-uvicorn
-pydantic
+openai # Usamos langchain-openai, pero 'openai' base es buena práctica
+tiktoken # ¡Añadir! Necesario para el conteo de tokens con OpenAI/LangChain
 
 # Dependencias App Demo
 streamlit
 
-# Dependencias para Generación de PDF (Opcional, pero recomendado)
+# Dependencias para Generación de PDF
 reportlab
 python-dotenv
