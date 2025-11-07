@@ -1,0 +1,15 @@
+# Ignorar archivos de Python
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+
+# Ignorar carpetas de entorno virtual
+.venv/
+venv/
+
+# Ignorar datos (REGLA CRÍTICA DE PRIVACIDAD)
+
+# Ignorar artefactos del modelo y logs
+*.joblib
+*.pkl
+*.log

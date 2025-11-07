@@ -1,0 +1,25 @@
+# Dependencias ML y Carga de Datos
+pandas
+numpy
+scikit-learn
+xgboost
+pyreadstat
+
+# Dependencias LLM y RAG (CORREGIDAS)
+langchain
+langchain-community
+langchain-openai
+faiss-cpu
+openai
+fastapi
+
+# Dependencias API y Deploy
+uvicorn
+pydantic
+
+# Dependencias App Demo
+streamlit
+
+# Dependencias para Generación de PDF (Opcional, pero recomendado)
+reportlab
+python-dotenv
